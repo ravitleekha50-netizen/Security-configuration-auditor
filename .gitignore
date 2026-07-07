@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.local
+*.log
+reports/*.html
+reports/*.txt
+.DS_Store
+Thumbs.db
+*.sqlite3
+*.db
+venv/
+env/
+.venv/
