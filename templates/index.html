@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Configuration & Compliance Auditor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <button class="theme-toggle" onclick="toggleTheme()">🌗 Theme</button>
+    <div class="container">
+        <header class="app-header">
+            <img src="{{ url_for('static', filename='logo.png') }}" alt="SecAuditor" class="app-logo">
+            <h1>Security Configuration Auditor</h1>
+            <p>Passive compliance checker for HTTP headers and SSL/TLS cryptographic validation</p>
+        </header>
+
+        <section class="control-panel">
+            <div class="switch-row inline-switch" style="margin-bottom: 15px;">
+                <div class="switch-details">
+                    <span class="switch-title">Batch Scan Mode</span>
+                    <span class="switch-desc">Audit multiple domains simultaneously</span>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="batch-toggle" onchange="toggleBatchMode()">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <div class="input-row" id="single-input-row">
+                <input type="text" id="target-input" placeholder="example.com">
+            </div>
+
+            <div class="input-row" id="batch-input-row" style="display: none; flex-direction: column;">
+                <label style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 5px;">Enter domains (one per line):</label>
+                <textarea id="target-textarea" placeholder="example.com&#10;google.com&#10;github.com" style="width: 100%; min-height: 120px; font-family: 'JetBrains Mono', monospace;"></textarea>
+            </div>
+
+            <div class="input-row" style="margin-top: 15px;">
+                <button id="scan-btn" class="scan-action" style="width: 100%; padding: 12px 0;" onclick="runAuditorScan()">Launch Audit</button>
+            </div>
+
+            <div class="progress-bar-container" id="progress-container" style="display: none;">
+                <div class="progress-bar-fill" id="progress-bar"></div>
+            </div>
+        </section>
+
+        <div class="results-actions" id="actions-area" style="display: none; gap: 10px; justify-content: flex-end; flex-wrap: wrap;">
+            <button class="export-btn" onclick="exportToCSV()">📥 Export CSV Report</button>
+            <button class="export-btn" id="html-rep-btn" onclick="downloadDetailedReport('html')">📄 Download HTML Report</button>
+            <button class="export-btn" id="text-rep-btn" onclick="downloadDetailedReport('text')">📝 Download Text Report</button>
+        </div>
+
+        <div class="card" id="batch-results-card" style="display: none; margin-bottom: 30px;">
+            <h3>Batch Scan Audit Summary</h3>
+            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 15px;">Click on any domain row below to load its detailed configuration report.</p>
+            <table class="audit-table">
+                <thead>
+                    <tr>
+                        <th>Target Domain</th>
+                        <th>Status Code</th>
+                        <th>Server</th>
+                        <th>SSL Status</th>
+                        <th>Risk Score</th>
+                    </tr>
+                </thead>
+                <tbody id="batch-tbody">
+                </tbody>
+            </table>
+        </div>
+
+        <div class="results-grid" id="results-area" style="display: none;">
+            <div class="card header-status-card">
+                <h3>HTTP Security Headers & URL Analysis</h3>
+                <div class="status-summary" style="flex-direction: column; gap: 8px;">
+                    <div style="display: flex; justify-content: space-between; width: 100%;">
+                        <span>Server: <strong id="server-val">Not Disclosed</strong></span>
+                        <span>Status Code: <strong id="status-val">N/A</strong></span>
+                    </div>
+                    <div id="redirects-summary" style="display: none; font-size: 0.82rem; color: var(--text-secondary); border-top: 1px solid var(--glass-border); padding-top: 8px; width: 100%;">
+                        Redirect Hops: <span id="redirects-list-val" style="font-family: 'JetBrains Mono', monospace;">None</span>
+                    </div>
+                    <div id="url-warnings-container" style="display: none; font-size: 0.82rem; border-top: 1px solid var(--glass-border); padding-top: 8px; width: 100%;">
+                        ⚠️ <span style="font-weight: 600; color: var(--accent-orange);">URL Warnings:</span>
+                        <ul id="url-warnings-list" style="margin-left: 15px; margin-top: 4px; color: var(--text-secondary); list-style-type: disc;"></ul>
+                    </div>
+                </div>
+                <table class="audit-table" style="margin-top: 10px;">
+                    <thead>
+                        <tr>
+                            <th>Security Header</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="headers-tbody">
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="card ssl-status-card">
+                <h3>SSL/TLS Cryptography</h3>
+                <table class="audit-table">
+                    <tbody>
+                        <tr>
+                            <td><strong>Certificate Status</strong></td>
+                            <td><span id="ssl-status-badge">Pending</span></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Protocol Version</strong></td>
+                            <td id="ssl-version-val">Unknown</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Issuer Common Name</strong></td>
+                            <td id="ssl-issuer-val">Unknown</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Expiration Date</strong></td>
+                            <td id="ssl-expiry-val">Unknown</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Days Remaining</strong></td>
+                            <td id="ssl-days-val">0 days</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="card port-status-card">
+                <h3>Systems Ports Status</h3>
+                <div style="max-height: 250px; overflow-y: auto;">
+                    <table class="audit-table">
+                        <thead>
+                            <tr>
+                                <th>Port</th>
+                                <th>Service</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ports-tbody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card xss-status-card">
+                <h3>XSS Detection</h3>
+                <div class="status-summary" style="flex-direction: column; gap: 8px;">
+                    <span>Forms Found: <strong id="xss-forms-val">0</strong></span>
+                    <span>Vectors Tested: <strong id="xss-tested-val">0</strong></span>
+                </div>
+                <table class="audit-table">
+                    <thead>
+                        <tr>
+                            <th>Location</th>
+                            <th>Parameter</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="xss-tbody">
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="card sql-status-card">
+                <h3>SQL Injection Tester</h3>
+                <div class="status-summary" style="flex-direction: column; gap: 8px;">
+                    <span>Forms Found: <strong id="sql-forms-val">0</strong></span>
+                    <span>Vectors Tested: <strong id="sql-tested-val">0</strong></span>
+                </div>
+                <table class="audit-table">
+                    <thead>
+                        <tr>
+                            <th>Location</th>
+                            <th>Parameter</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sql-tbody">
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="card risk-card">
+                <h3>Compliance Risk Score</h3>
+                <div class="risk-gauge">
+                    <div class="risk-score-display" id="risk-score-val">CRITICAL</div>
+                    <div class="risk-grade-display" id="risk-grade-val">Grade: F</div>
+                    <div class="risk-track">
+                        <div class="risk-fill" id="risk-fill"></div>
+                    </div>
+                </div>
+                <div class="remediation-steps">
+                    <h4>Remediation Steps Required:</h4>
+                    <ul id="remediation-list">
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let batchMode = false;
+        let batchResultsData = {};
+        let activeDomain = "";
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const savedTheme = localStorage.getItem("theme");
+            if (savedTheme === "light") {
+                document.body.classList.add("light-theme");
+            }
+            const input = document.getElementById("target-input");
+            input.addEventListener("keyup", (e) => {
+                if (e.key === "Enter") {
+                    runAuditorScan();
+                }
+            });
+        });
+
+        function toggleBatchMode() {
+            batchMode = document.getElementById("batch-toggle").checked;
+            const singleRow = document.getElementById("single-input-row");
+            const batchRow = document.getElementById("batch-input-row");
+
+            if (batchMode) {
+                singleRow.style.display = "none";
+                batchRow.style.display = "flex";
+            } else {
+                singleRow.style.display = "flex";
+                batchRow.style.display = "none";
+            }
+        }
+
+        async function runAuditorScan() {
+            const scanBtn = document.getElementById("scan-btn");
+            const progressContainer = document.getElementById("progress-container");
+            const progressFill = document.getElementById("progress-bar");
+            
+            const resultsArea = document.getElementById("results-area");
+            const batchCard = document.getElementById("batch-results-card");
+            const actionsArea = document.getElementById("actions-area");
+
+            resultsArea.style.display = "none";
+            batchCard.style.display = "none";
+            actionsArea.style.display = "none";
+
+            if (!batchMode) {
+                const target = document.getElementById("target-input").value.trim();
+                if (!target) {
+                    alert("Please enter a target domain.");
+                    return;
+                }
+
+                activeDomain = target;
+                scanBtn.disabled = true;
+                progressContainer.style.display = "block";
+                progressFill.style.width = "0%";
+
+                setTimeout(() => { progressFill.style.width = "40%"; }, 200);
+                setTimeout(() => { progressFill.style.width = "75%"; }, 800);
+
+                try {
+                    const data = await fetchAuditData(target);
+                    progressFill.style.width = "100%";
+                    setTimeout(() => {
+                        batchResultsData = { [target]: data };
+                        displaySingleAudit(target);
+                        progressContainer.style.display = "none";
+                        scanBtn.disabled = false;
+                        actionsArea.style.display = "flex";
+                        document.getElementById("html-rep-btn").style.display = "inline-block";
+                        document.getElementById("text-rep-btn").style.display = "inline-block";
+                    }, 400);
+                } catch (error) {
+                    alert("Error running audit: " + error.message);
+                    progressContainer.style.display = "none";
+                    scanBtn.disabled = false;
+                }
+            } else {
+                const rawInput = document.getElementById("target-textarea").value.trim();
+                if (!rawInput) {
+                    alert("Please enter at least one domain.");
+                    return;
+                }
+
+                const targets = rawInput.split("\n")
+                    .map(t => t.trim())
+                    .filter(t => t.length > 0);
+
+                if (targets.length === 0) {
+                    alert("No valid domains entered.");
+                    return;
+                }
+
+                scanBtn.disabled = true;
+                progressContainer.style.display = "block";
+                progressFill.style.width = "0%";
+                batchResultsData = {};
+
+                const batchTbody = document.getElementById("batch-tbody");
+                batchTbody.innerHTML = "";
+                batchCard.style.display = "block";
+
+                let completedCount = 0;
+                
+                for (const target of targets) {
+                    const tr = document.createElement("tr");
+                    tr.id = `batch-row-${target.replace(/[^a-z0-9]/gi, '_')}`;
+                    tr.style.cursor = "pointer";
+                    tr.innerHTML = `
+                        <td><strong>${target}</strong></td>
+                        <td colspan="4" style="color: var(--text-secondary);">Scanning...</td>
+                    `;
+                    batchTbody.appendChild(tr);
+                }
+
+                for (const target of targets) {
+                    const rowId = `batch-row-${target.replace(/[^a-z0-9]/gi, '_')}`;
+                    const rowEl = document.getElementById(rowId);
+
+                    try {
+                        const data = await fetchAuditData(target);
+                        batchResultsData[target] = data;
+                        
+                        const calculated = computeRiskParameters(data);
+
+                        let sslStatus = "Valid";
+                        let sslClass = "badge-configured";
+                        if (data.ssl.error) {
+                            sslStatus = "Error";
+                            sslClass = "badge-missing";
+                        } else if (!data.ssl.valid) {
+                            sslStatus = "Expired";
+                            sslClass = "badge-missing";
+                        }
+
+                        rowEl.innerHTML = `
+                            <td><strong>${target}</strong></td>
+                            <td>${data.header.status_code || "Error"}</td>
+                            <td>${data.header.server || "Not Disclosed"}</td>
+                            <td><span class="badge ${sslClass}">${sslStatus}</span></td>
+                            <td style="color: ${calculated.color}; font-weight: bold;">${calculated.score.toFixed(1)} / 10.0</td>
+                        `;
+                        
+                        rowEl.onclick = () => {
+                            highlightBatchRow(rowEl);
+                            activeDomain = target;
+                            renderDetailCards(target);
+                            document.getElementById("html-rep-btn").style.display = "inline-block";
+                            document.getElementById("text-rep-btn").style.display = "inline-block";
+                        };
+
+                    } catch (error) {
+                        rowEl.innerHTML = `
+                            <td><strong>${target}</strong></td>
+                            <td colspan="4" style="color: var(--accent-red);">Scan Failed: ${error.message}</td>
+                        `;
+                    }
+
+                    completedCount++;
+                    progressFill.style.width = `${(completedCount / targets.length) * 100}%`;
+                }
+
+                setTimeout(() => {
+                    progressContainer.style.display = "none";
+                    scanBtn.disabled = false;
+                    actionsArea.style.display = "flex";
+                    document.getElementById("html-rep-btn").style.display = "none";
+                    document.getElementById("text-rep-btn").style.display = "none";
+                }, 400);
+            }
+        }
+
+        function highlightBatchRow(selectedRow) {
+            const tbody = document.getElementById("batch-tbody");
+            tbody.querySelectorAll("tr").forEach(tr => {
+                tr.style.backgroundColor = "transparent";
+            });
+            selectedRow.style.backgroundColor = "rgba(59, 130, 246, 0.15)";
+        }
+
+        async function fetchAuditData(target) {
+            const response = await fetch("/audit", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ target: target })
+            });
+
+            if (!response.ok) {
+                throw new Error("HTTP connection failed");
+            }
+            return await response.json();
+        }
+
+        function computeRiskParameters(data) {
+            let riskScore = 10.0;
+            let sslFailed = false;
+
+            const weights = {
+                "Content-Security-Policy": 3.0,
+                "Strict-Transport-Security": 3.0,
+                "X-Frame-Options": 2.0,
+                "X-Content-Type-Options": 1.0,
+                "Referrer-Policy": 1.0
+            };
+
+            for (const [header, weight] of Object.entries(weights)) {
+                if (data.header.security_headers[header] && data.header.security_headers[header].present) {
+                    riskScore -= weight;
+                }
+            }
+
+            if (data.ssl.error || !data.ssl.valid) {
+                sslFailed = true;
+            }
+
+            if (sslFailed && riskScore < 5.0) {
+                riskScore = 5.0;
+            }
+
+            const xssFindings = data.xss && data.xss.findings ? data.xss.findings.length : 0;
+            const sqlFindings = data.sql && data.sql.findings ? data.sql.findings.length : 0;
+            riskScore += Math.min(4.0, (xssFindings * 2.0) + (sqlFindings * 2.5));
+            riskScore = Math.min(10.0, riskScore);
+
+            let color = "var(--accent-green)";
+            let grade = "A";
+            if (riskScore >= 9.0) {
+                color = "var(--accent-red)";
+                grade = "F";
+            } else if (riskScore >= 6.0) {
+                color = "var(--accent-orange)";
+                grade = "D";
+            } else if (riskScore >= 4.0) {
+                color = "var(--accent-yellow)";
+                grade = "C";
+            } else if (riskScore >= 1.0) {
+                color = "var(--accent-blue)";
+                grade = "B";
+            }
+
+            return { score: riskScore, color: color, grade: grade };
+        }
+
+        function displaySingleAudit(target) {
+            renderDetailCards(target);
+        }
+
+        function renderDetailCards(target) {
+            const data = batchResultsData[target];
+            if (!data) return;
+
+            const resultsArea = document.getElementById("results-area");
+            resultsArea.style.display = "grid";
+
+            document.getElementById("server-val").innerText = data.header.server || "Not Disclosed";
+            document.getElementById("status-val").innerText = data.header.status_code || "Error";
+
+            const warningsContainer = document.getElementById("url-warnings-container");
+            const warningsList = document.getElementById("url-warnings-list");
+            warningsList.innerHTML = "";
+            if (data.heuristics && data.heuristics.suspicious) {
+                warningsContainer.style.display = "block";
+                data.heuristics.reasons.forEach(reason => {
+                    const li = document.createElement("li");
+                    li.innerText = reason;
+                    warningsList.appendChild(li);
+                });
+            } else {
+                warningsContainer.style.display = "none";
+            }
+
+            const redirectsContainer = document.getElementById("redirects-summary");
+            const redirectsListVal = document.getElementById("redirects-list-val");
+            if (data.redirects && data.redirects.length > 0) {
+                redirectsContainer.style.display = "block";
+                redirectsListVal.innerText = data.redirects.join(" ➔ ");
+            } else {
+                redirectsContainer.style.display = "none";
+            }
+
+            const tbody = document.getElementById("headers-tbody");
+            tbody.innerHTML = "";
+            const recs = [];
+
+            const headerMap = {
+                "Content-Security-Policy": "CSP header is missing. Configure a Content Security Policy to define safe script execution scopes.",
+                "Strict-Transport-Security": "HSTS header is missing. Enable HSTS to ensure sessions only run over encrypted connections.",
+                "X-Frame-Options": "X-Frame-Options header is missing. Configure DENY or SAMEORIGIN to prevent framing clickjacking.",
+                "X-Content-Type-Options": "X-Content-Type-Options: nosniff is missing. Explicitly define this header to stop MIME-sniffing execution.",
+                "Referrer-Policy": "Referrer-Policy header is missing. Configure Referrer-Policy to prevent credential leakage in URL parameters."
+            };
+
+            for (const [header, info] of Object.entries(data.header.security_headers)) {
+                const tr = document.createElement("tr");
+                const tdName = document.createElement("td");
+                tdName.innerHTML = `<strong>${header}</strong>`;
+                const tdStatus = document.createElement("td");
+
+                if (info.present) {
+                    tdStatus.innerHTML = `<span class="badge badge-configured">Configured</span>`;
+                    tr.className = "row-configured";
+                } else {
+                    tdStatus.innerHTML = `<span class="badge badge-missing">Missing</span>`;
+                    if (headerMap[header]) recs.push(headerMap[header]);
+                    tr.className = "row-missing";
+                }
+
+                tr.appendChild(tdName);
+                tr.appendChild(tdStatus);
+                tbody.appendChild(tr);
+            }
+
+            const sslBadge = document.getElementById("ssl-status-badge");
+            if (data.ssl.error) {
+                sslBadge.className = "badge badge-missing";
+                sslBadge.innerText = "Error / Insecure";
+                document.getElementById("ssl-version-val").innerText = "N/A";
+                document.getElementById("ssl-issuer-val").innerText = "N/A";
+                document.getElementById("ssl-expiry-val").innerText = "N/A";
+                document.getElementById("ssl-days-val").innerText = "N/A";
+                recs.push("Establish a valid SSL/TLS certificate to fix connection encryption errors.");
+            } else {
+                if (data.ssl.valid) {
+                    sslBadge.className = "badge badge-configured";
+                    sslBadge.innerText = "Valid Certificate";
+                } else {
+                    sslBadge.className = "badge badge-missing";
+                    sslBadge.innerText = "Expired / Invalid";
+                    recs.push("Certificate is expired. Re-verify CA configuration logs and renew.");
+                }
+                document.getElementById("ssl-version-val").innerText = data.ssl.tls_version || "Unknown";
+                document.getElementById("ssl-issuer-val").innerText = data.ssl.issuer.commonName || "Unknown";
+                document.getElementById("ssl-expiry-val").innerText = data.ssl.expiry_date || "Unknown";
+                document.getElementById("ssl-days-val").innerText = (data.ssl.days_remaining !== null) ? `${data.ssl.days_remaining} days` : "Unknown";
+            }
+
+            const portsTbody = document.getElementById("ports-tbody");
+            portsTbody.innerHTML = "";
+            if (data.ports && data.ports.length > 0) {
+                data.ports.forEach(portInfo => {
+                    const tr = document.createElement("tr");
+                    
+                    const badgeClass = portInfo.status === "Open" ? "badge-configured" : "badge-missing";
+                    tr.innerHTML = `
+                        <td><strong>${portInfo.port}</strong></td>
+                        <td>${portInfo.service}</td>
+                        <td><span class="badge ${badgeClass}">${portInfo.status}</span></td>
+                    `;
+                    if (portInfo.status === "Open") {
+                        tr.className = "row-configured";
+                    } else {
+                        tr.className = "row-missing";
+                    }
+                    portsTbody.appendChild(tr);
+                });
+            } else {
+                portsTbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">No ports scanned.</td></tr>`;
+            }
+
+            renderAppTestCard("xss", data.xss, "No reflected XSS evidence found.", recs, "Review output encoding and Content Security Policy for reflected input locations.");
+            renderAppTestCard("sql", data.sql, "No SQL injection evidence found.", recs, "Use parameterized queries and server-side validation for SQL injection findings.");
+
+            const calculated = computeRiskParameters(data);
+
+            const riskScoreEl = document.getElementById("risk-score-val");
+            const riskGradeEl = document.getElementById("risk-grade-val");
+            const riskFillEl = document.getElementById("risk-fill");
+            
+            riskScoreEl.innerText = `${calculated.score.toFixed(1)} / 10.0`;
+            riskFillEl.style.width = `${calculated.score * 10}%`;
+            riskGradeEl.innerText = `Security Grade: ${calculated.grade}`;
+            
+            riskScoreEl.style.color = calculated.color;
+            riskFillEl.style.backgroundColor = calculated.color;
+
+            const recList = document.getElementById("remediation-list");
+            recList.innerHTML = "";
+            if (recs.length === 0) {
+                recList.innerHTML = "<li>🎉 Configuration conforms to all security compliance standards. No actions required.</li>";
+            } else {
+                recs.forEach(rec => {
+                    const li = document.createElement("li");
+                    li.innerText = rec;
+                    recList.appendChild(li);
+                });
+            }
+        }
+
+        function renderAppTestCard(prefix, result, clearMessage, recs, remediationText) {
+            const formsEl = document.getElementById(`${prefix}-forms-val`);
+            const testedEl = document.getElementById(`${prefix}-tested-val`);
+            const tbody = document.getElementById(`${prefix}-tbody`);
+            tbody.innerHTML = "";
+
+            if (!result || result.error) {
+                formsEl.innerText = "0";
+                testedEl.innerText = "0";
+                const errorText = result && result.error ? friendlyConnectionError(result.error) : "Check was not run.";
+                const tr = document.createElement("tr");
+                tr.className = "row-missing";
+                tr.innerHTML = `<td colspan="3" style="color: var(--accent-orange);">${escapeHtml(errorText)}</td>`;
+                tbody.appendChild(tr);
+                return;
+            }
+
+            formsEl.innerText = result.forms_found || 0;
+            testedEl.innerText = result.tested_vectors || 0;
+
+            if (!result.findings || result.findings.length === 0) {
+                const tr = document.createElement("tr");
+                tr.className = "row-configured";
+                tr.innerHTML = `<td colspan="3"><span class="badge badge-configured">Clear</span> ${clearMessage}</td>`;
+                tbody.appendChild(tr);
+                return;
+            }
+
+            recs.push(remediationText);
+            result.findings.forEach(finding => {
+                const tr = document.createElement("tr");
+                tr.className = "row-missing";
+                tr.innerHTML = `
+                    <td>${escapeHtml(finding.location || "Unknown")}</td>
+                    <td>${escapeHtml(finding.parameter || "Unknown")}</td>
+                    <td><span class="badge badge-missing">Finding</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function friendlyConnectionError(errorText) {
+            const text = String(errorText);
+            if (text.includes("WinError 10061") || text.includes("Connection refused")) {
+                return "Could not connect to the target. Check that the website is running and the port is correct.";
+            }
+            if (text.includes("SSLError") || text.includes("wrong version number")) {
+                return "The target does not appear to support HTTPS. Try entering the full URL with http://.";
+            }
+            if (text.includes("NameResolutionError") || text.includes("getaddrinfo failed")) {
+                return "The domain name could not be resolved. Check the spelling or network connection.";
+            }
+            if (text.includes("timed out") || text.includes("WinError 10060")) {
+                return "The target timed out. Check that it is reachable and not blocking requests.";
+            }
+            return text;
+        }
+
+        function downloadDetailedReport(format) {
+            if (!activeDomain) return;
+            window.location.href = `/report/download?target=${encodeURIComponent(activeDomain)}&format=${format}`;
+        }
+
+        function exportToCSV() {
+            let csv = "";
+            
+            if (!batchMode) {
+                const target = Object.keys(batchResultsData)[0] || "domain";
+                const data = batchResultsData[target];
+                if (!data) return;
+
+                csv += `Security Audit Report for: ${target}\n\n`;
+                csv += "HTTP Security Headers\nHeader,Status\n";
+                for (const [header, info] of Object.entries(data.header.security_headers)) {
+                    csv += `"${header}","${info.present ? 'Configured' : 'Missing'}"\n`;
+                }
+
+                csv += "\nSSL/TLS Cryptography\nMetric,Value\n";
+                csv += `"Certificate Status","${data.ssl.error ? 'Error' : (data.ssl.valid ? 'Valid' : 'Expired')}"\n`;
+                csv += `"Protocol Version","${data.ssl.tls_version || 'N/A'}"\n`;
+                csv += `"Issuer Common Name","${data.ssl.issuer.commonName || 'N/A'}"\n`;
+                csv += `"Expiration Date","${data.ssl.expiry_date || 'N/A'}"\n`;
+                csv += `"Days Remaining","${data.ssl.days_remaining !== null ? data.ssl.days_remaining : 'N/A'}"\n`;
+
+                csv += "\nSystem Open Ports\nPort,Service,Status\n";
+                if (data.ports) {
+                    data.ports.forEach(p => {
+                        csv += `"${p.port}","${p.service}","${p.status}"\n`;
+                    });
+                }
+
+                csv += "\nXSS Detection\nLocation,Parameter,Evidence\n";
+                csv = appendFindingsToCSV(csv, data.xss);
+                if (!data.xss || !data.xss.findings || data.xss.findings.length === 0) {
+                    csv += `"No reflected XSS evidence found","",""\n`;
+                }
+
+                csv += "\nSQL Injection Tester\nLocation,Parameter,Evidence\n";
+                csv = appendFindingsToCSV(csv, data.sql);
+                if (!data.sql || !data.sql.findings || data.sql.findings.length === 0) {
+                    csv += `"No SQL injection evidence found","",""\n`;
+                }
+
+                const calculated = computeRiskParameters(data);
+                csv += `\nCompliance Risk Assessment\nMetric,Value\n`;
+                csv += `"Overall Posture Risk Score","${calculated.score.toFixed(1)} / 10.0"\n`;
+                csv += `"Security Grade","Grade: ${calculated.grade}"\n`;
+
+                triggerCSVDownload(csv, `security_audit_${target}.csv`);
+            } else {
+                csv += "Batch Security Audit Report\n\n";
+                csv += "Target Domain,Status Code,Server,SSL Certificate,XSS Findings,SQLi Findings,Risk Score,Security Grade\n";
+
+                for (const [target, data] of Object.entries(batchResultsData)) {
+                    const calculated = computeRiskParameters(data);
+                    let sslText = "Valid";
+                    if (data.ssl.error) sslText = "Error";
+                    else if (!data.ssl.valid) sslText = "Expired";
+
+                    const xssCount = data.xss && data.xss.findings ? data.xss.findings.length : 0;
+                    const sqlCount = data.sql && data.sql.findings ? data.sql.findings.length : 0;
+                    csv += `"${target}","${data.header.status_code || 'Error'}","${data.header.server || 'Not Disclosed'}","${sslText}","${xssCount}","${sqlCount}","${calculated.score.toFixed(1)} / 10.0","Grade: ${calculated.grade}"\n`;
+                }
+
+                triggerCSVDownload(csv, "batch_security_audit_report.csv");
+            }
+        }
+
+        function appendFindingsToCSV(csv, result) {
+            if (!result || !result.findings) return csv;
+            result.findings.forEach(finding => {
+                csv += `"${finding.location || 'Unknown'}","${finding.parameter || 'Unknown'}","${finding.evidence || 'Evidence detected'}"\n`;
+            });
+            return csv;
+        }
+
+        function triggerCSVDownload(csvContent, filename) {
+            const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", filename.replace(/[^a-z0-9._]/gi, '_'));
+            link.style.visibility = "hidden";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function toggleTheme() {
+            document.body.classList.toggle("light-theme");
+            const theme = document.body.classList.contains("light-theme") ? "light" : "dark";
+            localStorage.setItem("theme", theme);
+        }
+    </script>
+</body>
+</html>
